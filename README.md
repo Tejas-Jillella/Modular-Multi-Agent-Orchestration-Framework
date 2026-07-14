@@ -37,29 +37,61 @@ pyproject.toml                # Dependencies and project metadata
 ### HOW DOES IT WORK Tejas??
 
 ```
-cli.py run --task "..." --workflow sequential_research
-        │
-        ▼
-framework/__init__.py  (re-exports run_workflow)
-        │
-        ▼
-framework/runtime/loader.py :: run_workflow()
-        │
-        ├─ load_workflow_config()      → reads configs/sequential_research.yaml
-        ├─ _build_agent_registry()     → builds AgentConfig + StubAgent per entry
-        ├─ _build_tool_registry()      → builds real tool instances (search, calc, file io)
-        ├─ creates OrchestrationState  → fresh run_id, empty history/artifacts
-        │
-        ▼
-        looks up "sequential" in PATTERN_REGISTRY
-        │
-        ├─ found   → pattern.execute(state, agent_registry, tool_registry)
-        └─ NOT found → returns a failed RunResult with a clear error
-                       (this is the current, correct behavior — no patterns
-                        are registered yet)
-        │
-        ▼
-RunResult bubbles back up to cli.py and gets printed
+1. You run this in the terminal:
+   python cli.py run --task "research KV cache" --workflow sequential_research
+
+2. cli.py
+   → main() parses your args, sees "run", calls cmd_run(args)
+   → cmd_run() calls run_workflow(task, workflow_id) 
+   
+3. framework/__init__.py
+   → this is just the "front door" — it re-exports run_workflow
+     so cli.py can say `from framework import run_workflow`
+     instead of digging into runtime.loader directly
+
+4. framework/runtime/loader.py   ← THE GLUE. Everything routes through here.
+   run_workflow() does 4 things in order:
+
+   a) load_workflow_config()
+      → opens configs/sequential_research.yaml
+      → reads it into a plain Python dict
+
+   b) _build_agent_registry()
+      → for each agent listed in the yaml (researcher, analyst, writer):
+        - builds an AgentConfig  (from agents/base.py)
+        - wraps it in a StubAgent (from agents/concrete/stub.py)
+        - stores it in an AgentRegistry (from agents/registry.py)
+
+   c) _build_tool_registry()
+      → for each tool listed in the yaml (web_search, calculator, etc.):
+        - instantiates the real tool class (tools/builtin/*.py)
+        - stores it in a ToolRegistry (from tools/base.py)
+
+   d) creates one OrchestrationState (from orchestration/state.py)
+      → this is the blank notebook for this run — empty history,
+        empty artifacts, a fresh run_id
+
+5. Still in loader.py:
+   → looks up "sequential" inside PATTERN_REGISTRY 
+     (that registry lives in orchestration/patterns/base.py)
+   → if found: pattern.execute(state, agent_registry, tool_registry)
+   → if NOT found: bail out with an error ← THIS IS WHERE WE ARE TODAY.
+     No pattern has called @register_pattern yet (that's Goal 4+),
+     so PATTERN_REGISTRY is empty and every run currently stops here.
+
+6. (Future — once Goal 4 exists)
+   → the sequential pattern would call agent.run(task, context) on
+     researcher, then analyst, then writer, in order
+   → each .run() call uses:
+       - orchestration/task.py       → builds the Task handed to the agent
+       - agents/context.py           → builds the bounded AgentContext
+       - tools/base.py ToolRegistry  → if the agent calls a tool
+       - orchestration/state.py      → logs the message/tool call/artifact
+
+7. loader.py wraps everything into a RunResult (orchestration/state.py)
+   and hands it back up to cmd_run()
+
+8. cli.py prints the result to your terminal
 ```
 
 ### HOW do I use it Tejas??
