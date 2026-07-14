@@ -1,0 +1,64 @@
+workflow_id: sequential_research
+description: "Research a topic, analyze findings, produce a report. Three-agent sequential pipeline."
+pattern: sequential
+
+inference:
+  endpoint: http://inference-svc:8000/v1
+  default_model: gemma-2-9b-it
+
+agents:
+  - id: researcher
+    role: researcher
+    system_prompt: |
+      You are a research agent. Given a topic, collect and summarize the most
+      relevant information. Be factual, concise, and thorough.
+      Write your output as structured notes.
+    allowed_tools:
+      - web_search
+      - file_write
+    max_tokens: 1024
+    temperature: 0.3
+
+  - id: analyst
+    role: analyst
+    system_prompt: |
+      You are an analysis agent. Given research notes, identify key patterns,
+      insights, and gaps. Structure your analysis with clear headings.
+    allowed_tools:
+      - file_read
+      - calculator
+    max_tokens: 1024
+    temperature: 0.5
+
+  - id: writer
+    role: writer
+    system_prompt: |
+      You are a writing agent. Given an analysis, produce a clear,
+      well-structured report in markdown. Include an executive summary.
+    allowed_tools:
+      - file_read
+      - file_write
+    max_tokens: 2048
+    temperature: 0.7
+
+tools:
+  - name: web_search
+    type: search
+  - name: file_write
+    type: file_write
+    config:
+      allowed_paths: ["./artifacts"]
+  - name: file_read
+    type: file_read
+    config:
+      allowed_paths: ["./artifacts"]
+  - name: calculator
+    type: calculator
+
+settings:
+  max_retries: 2
+  timeout_seconds: 120
+  context_strategy: last_n
+  context_last_n: 3
+  artifact_dir: ./artifacts
+  trace_level: verbose
