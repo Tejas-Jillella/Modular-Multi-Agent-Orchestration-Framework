@@ -2,6 +2,7 @@
 
 Repository structure
 
+```
 framework/
 ├── agents/
 │   ├── base.py            # AgentConfig, BaseAgent (abstract worker template)
@@ -30,13 +31,12 @@ configs/
 tests/unit/                   # 32 tests across state, tools, and pattern registration
 cli.py                        # Command-line entrypoint
 pyproject.toml                # Dependencies and project metadata
-
-
-
+```
 
 
 ### HOW DOES IT WORK Tejas??
 
+```
 cli.py run --task "..." --workflow sequential_research
         │
         ▼
@@ -60,21 +60,23 @@ framework/runtime/loader.py :: run_workflow()
         │
         ▼
 RunResult bubbles back up to cli.py and gets printed
-
+```
 
 ### HOW do I use it Tejas??
 
-// install dependencies
+```bash
+# install dependencies
 pip install -e ".[dev]"
 
-// run the test suite
+# run the test suite
 pytest tests/ -v
 
-// see registered patterns (currently empty — expected)
+# see registered patterns (currently empty — expected)
 python cli.py list-patterns
 
-// see tools available to a given workflow config
+# see tools available to a given workflow config
 python cli.py list-tools --workflow sequential_research
 
-// attempt a run (will fail with "pattern not registered" — expected for now)
+# attempt a run (will fail with "pattern not registered" — expected for now)
 python cli.py run --task "research KV cache" --workflow sequential_research
+```
