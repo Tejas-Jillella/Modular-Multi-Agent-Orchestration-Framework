@@ -6,6 +6,15 @@ Usage:
     python cli.py list-patterns
     python cli.py list-tools --workflow sequential_research
 """
+# --------------------------------------------------------------------------
+# This file's job: the command-line front door to the whole framework. It
+# doesn't contain any orchestration logic itself — each subcommand below just
+# calls into framework/ and prints the result. `run` calls
+# framework.run_workflow() (re-exported from framework/runtime/loader.py by
+# framework/__init__.py); `list-patterns` reads
+# framework.orchestration.patterns.base.PATTERN_REGISTRY directly;
+# `list-tools` calls the loader's internal _build_tool_registry() helper.
+# --------------------------------------------------------------------------
 import argparse
 import json
 import sys

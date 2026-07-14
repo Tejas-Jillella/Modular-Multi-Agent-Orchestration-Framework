@@ -5,6 +5,17 @@ Connects workflow.yaml -> Pattern + AgentRegistry + ToolRegistry
 -> OrchestrationState -> RunResult.
 """
 
+# --------------------------------------------------------------------------
+# This file's job: THE GLUE. It's the one module that knows how to turn a
+# workflow YAML file into a running pipeline — parsing the file, building an
+# AgentRegistry (agents/registry.py) full of StubAgents
+# (agents/concrete/stub.py), building a ToolRegistry (tools/base.py) full of
+# built-in tools (tools/builtin/*.py), creating an OrchestrationState
+# (orchestration/state.py), looking the requested pattern up in
+# PATTERN_REGISTRY (orchestration/patterns/base.py), and running it. Imported
+# by framework/__init__.py (which re-exports run_workflow) and by cli.py.
+# --------------------------------------------------------------------------
+
 import yaml
 import time
 from pathlib import Path
@@ -36,12 +47,24 @@ def load_workflow_config(workflow_id: str, config_dir: str = "./configs") -> dic
     Load and parse a workflow YAML file by workflow_id.
     Looks for: {config_dir}/{workflow_id}.yaml
     """
+    # pathlib.Path overloads Python's `/` (division) operator to mean "join a
+    # path segment," so `Path(config_dir) / f"{workflow_id}.yaml"` builds a
+    # path the same way os.path.join(config_dir, f"{workflow_id}.yaml") would,
+    # but as a Path object with extra convenience methods (like .exists()
+    # below) instead of a plain string.
     path = Path(config_dir) / f"{workflow_id}.yaml"
     if not path.exists():
         raise FileNotFoundError(
             f"Workflow config '{workflow_id}' not found at '{path}'."
         )
     with open(path, "r", encoding="utf-8") as f:
+        # yaml.safe_load() parses YAML into plain Python data (dicts, lists,
+        # strings, numbers) only. The alternative, yaml.load(), can — unless
+        # you pass extra options — construct arbitrary Python objects
+        # described in the YAML file, which is a security risk if the YAML
+        # ever comes from an untrusted source (it can trigger arbitrary code
+        # execution). Since workflow configs may not always be fully trusted,
+        # safe_load() is the correct default here.
         return yaml.safe_load(f)
 
 
@@ -57,6 +80,13 @@ def _build_tool_registry(tools_config: list[dict]) -> ToolRegistry:
             )
         cls = _TOOL_CLASSES[tool_type]
         try:
+            # `**tool_cfg` unpacks a dict into keyword arguments: if
+            # tool_cfg is {"allowed_paths": ["./artifacts"]}, then
+            # `cls(**tool_cfg)` is exactly the same call as
+            # `cls(allowed_paths=["./artifacts"])`. This lets the loader
+            # construct any tool class with whatever config keys that
+            # particular tool's __init__ expects, without needing to know in
+            # advance what those keys are named.
             instance = cls(**tool_cfg) if tool_cfg else cls()
         except TypeError:
             instance = cls()
@@ -109,7 +139,11 @@ def run_workflow(
     """
     start = time.time()
 
-    # 1. Load YAML
+    # 1. Load YAML — read {config_dir}/{workflow_id}.yaml off disk and parse it
+    #    into a plain dict. If the file doesn't exist, there's nothing further
+    #    to do: bail out immediately with a failed RunResult carrying the
+    #    FileNotFoundError's message, rather than letting the exception
+    #    propagate up to the caller.
     try:
         raw = load_workflow_config(workflow_id, config_dir)
     except FileNotFoundError as e:
@@ -118,7 +152,10 @@ def run_workflow(
     if config_overrides:
         raw.update(config_overrides)
 
-    # 2. Validate pattern field
+    # 2. Validate pattern field — every workflow YAML must declare which
+    #    pattern drives it (e.g. "sequential"). Without this field there's no
+    #    way to know how to run the workflow at all, so fail fast with a clear
+    #    error rather than letting a later step crash confusingly.
     pattern_name = raw.get("pattern")
     if not pattern_name:
         return RunResult(
@@ -126,7 +163,12 @@ def run_workflow(
             error="workflow.yaml is missing required 'pattern' field."
         )
 
-    # 3. Check pattern is registered
+    # 3. Check pattern is registered — the YAML named a pattern, but that
+    #    doesn't mean a Pattern class actually exists for it: pattern modules
+    #    self-register into PATTERN_REGISTRY (orchestration/patterns/base.py)
+    #    only when imported, and right now (Goal 3) no pattern modules exist
+    #    yet. This step catches that case with a helpful error instead of a
+    #    raw KeyError later when we try to look the pattern up.
     if pattern_name not in PATTERN_REGISTRY:
         return RunResult(
             run_id="error", status="failed", output="",
@@ -137,14 +179,26 @@ def run_workflow(
             ),
         )
 
-    # 4. Build registries
+    # 4. Build registries — turn the YAML's `agents:` and `tools:` sections
+    #    into an AgentRegistry (agents/registry.py, currently full of
+    #    StubAgents) and a ToolRegistry (tools/base.py, real tool instances).
+    #    These are what the pattern will actually dispatch work to.
     agent_registry = _build_agent_registry(raw.get("agents", []))
     tool_registry  = _build_tool_registry(raw.get("tools", []))
 
-    # 5. Create shared state
+    # 5. Create shared state — a fresh OrchestrationState (orchestration/state.py)
+    #    for this run: a new random run_id, empty message history/artifacts/
+    #    trace events. This is the "game board" the pattern will read from and
+    #    write to as it dispatches tasks to agents.
     state = OrchestrationState(task=task, pattern=pattern_name)
 
-    # 6. Run the pattern
+    # 6. Run the pattern — instantiate the Pattern class found in step 3 and
+    #    hand it the state plus both registries; it's now fully responsible
+    #    for creating Tasks, dispatching them to agents, and deciding when the
+    #    run is complete. If the pattern raises any exception during
+    #    execution, we don't let it propagate — we convert it into a failed
+    #    RunResult via state.fail() so callers always get a RunResult back,
+    #    success or failure.
     pattern = PATTERN_REGISTRY[pattern_name]()
     try:
         result = pattern.execute(

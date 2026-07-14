@@ -1,3 +1,11 @@
+# --------------------------------------------------------------------------
+# This file's job: define what a "tool" IS (BaseTool — the contract concrete
+# tools like tools/builtin/calculator.py implement) and provide the
+# ToolRegistry that stores tool instances for a run and enforces per-agent
+# permissions. Built by runtime/loader.py's _build_tool_registry() and handed
+# to a Pattern's execute() (orchestration/patterns/base.py) alongside an
+# AgentRegistry (agents/registry.py).
+# --------------------------------------------------------------------------
 from abc import ABC, abstractmethod
 
 
@@ -13,6 +21,12 @@ class BaseTool(ABC):
     name: str         # must match the string in AgentConfig.allowed_tools
     description: str  # shown to the LLM so it knows when to call this tool
 
+    # `**kwargs` collects any extra keyword arguments a caller passes in beyond
+    # `input`, into a dict named kwargs (e.g. calling run("2+2", foo="bar") puts
+    # {"foo": "bar"} into kwargs). Declaring it here means every tool's run()
+    # signature can accept extra parameters without every implementation having
+    # to redeclare them — it's a flexible "catch-all" for future/tool-specific
+    # options that the base class doesn't need to know about in advance.
     @abstractmethod
     def run(self, input: str, **kwargs) -> str:
         """Execute the tool. Always returns a plain string."""
@@ -56,6 +70,15 @@ class ToolRegistry:
 
     ALL tool calls must go through invoke() — never call tool.run() directly
     from agent or pattern code, because that bypasses permission checks.
+
+    Why a registry instead of passing tool instances around directly: the same
+    reasoning as AgentRegistry (agents/registry.py) — a workflow's tool list is
+    built dynamically from YAML, and callers need to look a tool up by name
+    string at run time. On top of that lookup role, ToolRegistry adds a second
+    job registries alone don't need: gatekeeping. invoke() is the only method
+    that checks an agent's allowed_tools before running anything, so routing
+    every tool call through the registry (never through a raw tool.run() call)
+    is what makes per-agent tool permissions actually enforceable.
     """
 
     def __init__(self):
@@ -85,6 +108,17 @@ class ToolRegistry:
         This is the runtime enforcement point for Goal 11 (tool permissions).
         Config-load checks alone are not sufficient — they can be bypassed
         by a misconfigured or prompt-injected agent.
+
+        Why invoke() is the ONLY correct way to call a tool: `tool.run(input)`
+        is a completely ordinary method call — nothing on BaseTool or its
+        subclasses stops any code, anywhere, from calling it directly. The
+        permission check (is this agent allowed to use this tool?) lives
+        entirely in this method, not in the tool itself. So if agent or
+        pattern code ever calls `some_tool.run(...)` directly instead of going
+        through `tool_registry.invoke(...)`, it silently skips the
+        allowed_tools check above and lets an agent use a tool it was never
+        granted — the permission system only works if every call path goes
+        through here.
         """
         if name not in allowed_tools:
             raise PermissionError(
@@ -100,6 +134,12 @@ class ToolRegistry:
         Build the tools list to include in an LLM API call.
         Only includes tools the agent is allowed to use AND that are registered.
         """
+        # A list comprehension can have a trailing `if` clause that *filters*
+        # which items make it into the result — this reads as "for each name in
+        # allowed_tools, but only keep it if name is also in self._tools, and
+        # for the ones that pass, put self._tools[name].to_schema() in the
+        # list." It's equivalent to a for-loop with an `if: continue` guard,
+        # but expressed as a single filtering-and-transforming expression.
         return [
             self._tools[name].to_schema()
             for name in allowed_tools
@@ -109,6 +149,9 @@ class ToolRegistry:
     def registered_names(self) -> list[str]:
         return list(self._tools.keys())
 
+    # See AgentRegistry.__len__/__repr__ in agents/registry.py for what these
+    # "dunder" methods do — same idea here: len(tool_registry) and
+    # print(tool_registry) work out of the box because of these.
     def __len__(self) -> int:
         return len(self._tools)
 

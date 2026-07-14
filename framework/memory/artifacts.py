@@ -1,3 +1,13 @@
+# --------------------------------------------------------------------------
+# This file's job: a disk-backed store for named artifacts (reports,
+# generated files) that survive after a run ends, unlike everything else in
+# framework/memory/ and OrchestrationState.artifacts (orchestration/state.py),
+# which are in-memory only. NOT currently instantiated or used anywhere in
+# the pipeline — OrchestrationState.save_artifact() currently just keeps
+# artifact content in a plain in-memory dict for the duration of the run.
+# ArtifactStore is the more capable, persistent version of that same idea,
+# meant to be wired in during Goal 10.
+# --------------------------------------------------------------------------
 import os
 from dataclasses import dataclass
 
@@ -38,6 +48,11 @@ class ArtifactStore:
         if not os.path.exists(self.artifact_dir):
             return []
         prefix = f"{self.run_id}_"
+        # List comprehension with a trailing filter `if`: for each filename in
+        # the artifact directory, keep it only if it starts with this run's
+        # prefix, and for the ones kept, strip that prefix off before adding it
+        # to the result list. Equivalent to a for-loop with an `if` guard, but
+        # written as one expression.
         return [
             f.replace(prefix, "", 1)
             for f in os.listdir(self.artifact_dir)

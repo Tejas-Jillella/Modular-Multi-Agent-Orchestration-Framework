@@ -1,3 +1,10 @@
+# --------------------------------------------------------------------------
+# This file's job: two concrete BaseTool (tools/base.py) implementations that
+# let an agent read/write files on disk, constrained to a whitelist of
+# allowed directories. Registered by runtime/loader.py's _TOOL_CLASSES map
+# under "file_read"/"file_write" and instantiated into a ToolRegistry
+# (tools/base.py) at workflow-build time.
+# --------------------------------------------------------------------------
 import os
 from ..base import BaseTool
 
@@ -13,6 +20,14 @@ class FileReadTool(BaseTool):
     def __init__(self, allowed_paths: list[str] | None = None):
         self.allowed_paths = [os.path.abspath(p) for p in (allowed_paths or ["./artifacts"])]
 
+    # Security check: an agent could be given a path like "../../etc/passwd" or
+    # some other traversal outside the intended directory. os.path.abspath()
+    # resolves the given path to a full, normalized absolute path (collapsing
+    # any ".." segments), and then str.startswith() checks whether that
+    # resolved path actually lives inside one of the resolved allowed_paths
+    # directories. Doing the comparison on abspath() output (both sides) — not
+    # on the raw strings — is what prevents "./artifacts/../../secrets"-style
+    # tricks from slipping past a naive string check.
     def _is_allowed(self, path: str) -> bool:
         return any(os.path.abspath(path).startswith(p) for p in self.allowed_paths)
 
@@ -45,12 +60,21 @@ class FileWriteTool(BaseTool):
     def __init__(self, allowed_paths: list[str] | None = None):
         self.allowed_paths = [os.path.abspath(p) for p in (allowed_paths or ["./artifacts"])]
 
+    # Same allowed-directory check as FileReadTool._is_allowed above — see that
+    # method's comment for why abspath()+startswith() is used.
     def _is_allowed(self, path: str) -> bool:
         return any(os.path.abspath(path).startswith(p) for p in self.allowed_paths)
 
     def run(self, input: str, **kwargs) -> str:
         if "|||" not in input:
             return "Error: input must be 'filepath|||content'. Separator ||| not found."
+        # str.split(sep, maxsplit) — the `1` caps how many splits happen: split
+        # on the FIRST "|||" only, and leave everything after it (even if it
+        # contains more "|||" sequences) intact as the second piece. Without
+        # the `1`, content that itself happens to contain "|||" would get
+        # chopped into more than two pieces and this unpacking
+        # (`path, content = ...`) would raise a ValueError ("too many values to
+        # unpack") instead of cleanly separating "path" from "everything else".
         path, content = input.split("|||", 1)
         path = path.strip()
         if not self._is_allowed(path):

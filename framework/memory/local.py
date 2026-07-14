@@ -1,3 +1,14 @@
+# --------------------------------------------------------------------------
+# This file's job: a per-agent scratchpad for one agent invocation (e.g. the
+# back-and-forth of a single agent's own tool-call loop). NOT currently
+# instantiated or used by anything in the pipeline — runtime/loader.py,
+# orchestration/patterns/base.py, and agents/base.py have no references to
+# this class yet. It's designed to be wired in during Goal 10, once agents
+# actually need multi-turn internal state that OrchestrationState
+# (orchestration/state.py) isn't meant to hold (OrchestrationState is
+# run-wide and shared across all agents; this is scoped to just one agent's
+# one call).
+# --------------------------------------------------------------------------
 from dataclasses import dataclass, field
 
 
