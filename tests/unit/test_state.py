@@ -34,6 +34,11 @@ def test_add_message_appends_and_traces():
     state.add_message(msg)
 
     assert len(state.message_history) == 1
+    # `is` checks object identity ("is this the exact same object in memory?"),
+    # not `==`'s equality ("does this look equal to that?"). Asserting
+    # `state.message_history[0] is msg` confirms add_message() stored the very
+    # same AgentMessage object we passed in — not a copy that merely compares
+    # equal to it.
     assert state.message_history[0] is msg
     # Trace event must also be recorded
     assert len(state.trace_events) == 1

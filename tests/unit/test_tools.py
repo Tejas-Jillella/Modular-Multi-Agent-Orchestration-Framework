@@ -17,11 +17,22 @@ def test_register_and_get_tool():
     registry.register(calc)
 
     retrieved = registry.get("calculator")
+    # `is` checks object identity (same object in memory), unlike `==` which
+    # checks equality (looks the same). `retrieved is calc` confirms
+    # registry.get() handed back the exact CalculatorTool instance we
+    # registered — not a copy that merely looks equal to it.
     assert retrieved is calc
 
 
 def test_get_unregistered_tool_raises_key_error():
     registry = ToolRegistry()
+    # pytest.raises(...) is a context manager: the `with` block is expected to
+    # raise the given exception type (KeyError here) — if it doesn't raise at
+    # all, or raises a different exception type, the test fails. The optional
+    # `match="..."` argument additionally checks that str(exception) matches
+    # that regular expression, so this also verifies the error message
+    # actually contains "not in registry", not just that *some* KeyError
+    # happened.
     with pytest.raises(KeyError, match="not in registry"):
         registry.get("nonexistent_tool")
 
@@ -118,6 +129,12 @@ def test_mock_search_returns_string():
 
 # --- FileWriteTool / FileReadTool ---
 
+# `tmp_path` is a pytest fixture: pytest recognizes this exact parameter name
+# on a test function and automatically injects a fresh, unique temporary
+# directory (as a pathlib.Path) for that single test run, deleting it
+# afterward. No manual setup/teardown needed — it's how these tests write
+# real files to disk without touching the actual project directory or
+# leaving files behind.
 def test_file_write_and_read_roundtrip(tmp_path):
     write_tool = FileWriteTool(allowed_paths=[str(tmp_path)])
     read_tool  = FileReadTool(allowed_paths=[str(tmp_path)])

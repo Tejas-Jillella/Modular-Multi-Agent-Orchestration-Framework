@@ -91,13 +91,33 @@ def main():
     parser = argparse.ArgumentParser(
         description="Modular Multi-Agent Orchestration Framework CLI"
     )
+    # add_subparsers() is what gives this CLI its "git-style" sub-commands —
+    # `python cli.py run ...`, `python cli.py list-patterns`, etc. — each with
+    # its own independent set of --flags. `dest="command"` tells argparse to
+    # store *which* sub-command name the user typed into `args.command` (read
+    # further down); `required=True` means the user MUST supply one of the
+    # sub-command names, or argparse exits with a usage error instead of
+    # silently doing nothing.
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # --- run command ---
+    # add_parser("run", ...) registers "run" as a valid sub-command name and
+    # gives back its own ArgumentParser (run_parser) — flags added to
+    # run_parser (like --task below) are ONLY recognized after `run`, not
+    # after `list-patterns` or `list-tools`.
     run_parser = subparsers.add_parser("run", help="Run a workflow")
+    # required=True on an individual --flag means argparse will error out if
+    # the user omits it — e.g. running `python cli.py run` without `--task`
+    # fails immediately with a clear message, instead of cmd_run() later
+    # crashing on a missing args.task.
     run_parser.add_argument("--task",       required=True, help="The task to run")
     run_parser.add_argument("--workflow",   required=True, help="Workflow ID (maps to configs/<id>.yaml)")
     run_parser.add_argument("--config-dir", default="./configs", help="Config directory (default: ./configs)")
+    # action="store_true" makes this a boolean flag with no value of its own:
+    # writing `--show-trace` on the command line sets args.show_trace to True;
+    # leaving it out leaves args.show_trace as False. There's no
+    # `--show-trace yes`/`--show-trace no` — its mere presence or absence IS
+    # the value.
     run_parser.add_argument("--show-trace", action="store_true", help="Print trace events")
     run_parser.add_argument("--show-history", action="store_true", help="Print message history")
 

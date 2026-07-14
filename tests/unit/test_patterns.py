@@ -18,6 +18,15 @@ from framework.tools.base import ToolRegistry
 def test_register_pattern_decorator_adds_to_registry():
     """@register_pattern must add the class to PATTERN_REGISTRY under pattern_name."""
 
+    # _TestPattern is defined INSIDE this test function, not at module level,
+    # because PATTERN_REGISTRY (orchestration/patterns/base.py) is a single
+    # global dict shared by the whole test process. If this class were defined
+    # at the top of the file, decorating it with @register_pattern would
+    # register it into PATTERN_REGISTRY the moment this test file is imported
+    # — and it would stay there for every other test that runs afterward,
+    # potentially colliding with pattern names other tests expect to be empty
+    # or absent. Defining it locally means it only gets created (and
+    # registered) while this specific test function is executing.
     @register_pattern
     class _TestPattern(BaseOrchestrationPattern):
         pattern_name = "_test_pattern_unique"
@@ -26,9 +35,18 @@ def test_register_pattern_decorator_adds_to_registry():
             return state.to_run_result(output="test done")
 
     assert "_test_pattern_unique" in PATTERN_REGISTRY
+    # `is` checks identity, not equality: this confirms PATTERN_REGISTRY
+    # stored the exact _TestPattern class object the decorator was applied
+    # to, not merely something that looks the same.
     assert PATTERN_REGISTRY["_test_pattern_unique"] is _TestPattern
 
-    # Clean up so this test doesn't bleed into others
+    # Clean up so this test doesn't bleed into others. Even though the class
+    # was defined locally, @register_pattern still wrote it into the shared,
+    # module-level PATTERN_REGISTRY dict — that side effect outlives this
+    # function's local scope. Without this `del`, "_test_pattern_unique"
+    # would remain registered for every test that runs after this one in the
+    # same process (pytest doesn't reset module-level state between tests),
+    # so later tests could see registry state left over from this one.
     del PATTERN_REGISTRY["_test_pattern_unique"]
 
 
@@ -39,6 +57,8 @@ def test_unregistered_pattern_not_in_registry():
 def test_registered_pattern_is_instantiable():
     """A registered pattern class should be instantiable and callable."""
 
+    # Same reasoning as _TestPattern above: defined locally so this
+    # registration doesn't leak into PATTERN_REGISTRY for other tests.
     @register_pattern
     class _InstantiablePattern(BaseOrchestrationPattern):
         pattern_name = "_instantiable_test"
@@ -60,6 +80,12 @@ def test_registered_pattern_is_instantiable():
 
 def test_abstract_pattern_cannot_be_instantiated():
     """BaseOrchestrationPattern itself is abstract and must not be instantiable."""
+    # pytest.raises(...) is a context manager: the code inside the `with`
+    # block must raise the given exception type, or the test fails. Here
+    # there's no `match=...`, so it only checks the exception type (TypeError
+    # — which is what Python's ABC machinery raises when you try to
+    # instantiate a class that still has unimplemented @abstractmethods),
+    # not its message.
     with pytest.raises(TypeError):
         BaseOrchestrationPattern()
 
@@ -86,6 +112,8 @@ def test_agent_registry_register_and_get():
     registry.register(agent)
 
     retrieved = registry.get("researcher")
+    # `is` checks identity, not equality — confirms registry.get() returned
+    # the exact same StubAgent instance that was registered.
     assert retrieved is agent
 
 
